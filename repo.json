@@ -11,8 +11,10 @@
       "entryClass": "com.omnistream.megamanga.MegaMangaPlugin",
       "description": "Manga, manhwa and manhua sources for OmniStream",
       "fileSize": 2139658,
-      "fileHash": "83704e36a183cf79888775f7bfeb88f9f8c9aa387a708ba714c4171e82f974ce",
-      "authors": ["OmniStream"],
+      "fileHash": "sha256-83704e36a183cf79888775f7bfeb88f9f8c9aa387a708ba714c4171e82f974ce",
+      "authors": [
+        "OmniStream"
+      ],
       "repoUrl": "https://github.com/TamerAli-0/megamanga"
     }
   ]
