@@ -17,6 +17,9 @@ import org.koitharu.kotatsu.parsers.model.MangaState
 import org.koitharu.kotatsu.parsers.model.SortOrder
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedDeque
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.withPermit
 
 class ParserMangaSource private constructor(
     private val parserSource: MangaParserSource,
@@ -27,6 +30,8 @@ class ParserMangaSource private constructor(
     constructor(source: MangaParserSource) : this(source, null)
 
     private val TAG = "MangaBridge[${parserSource.name}]"
+
+    private val PAGE_URL_CONCURRENCY = 16
 
     private val parser: MangaParser by lazy {
         existingParser ?: MangaBridge.createParser(parserSource)
@@ -332,11 +337,29 @@ class ParserMangaSource private constructor(
     // instead of the parser's actual request headers. Now propagates errors and uses
     // the proper referer from parser.getRequestHeaders().
     override suspend fun getPages(chapter: Chapter): List<Page> {
+        Log.i(TAG, "getPages CALL chapter.id='${chapter.id}' url='${chapter.url}' domain='${parser.domain}'")
+        val callStart = System.currentTimeMillis()
         return withCfRetry {
+            Log.i(TAG, "getPages IN BLOCK afterCfMs=${System.currentTimeMillis() - callStart}")
             val parserChapter = resolveParserChapter(chapter)
-            val pages = MirrorSwitcher.withMirrors(parser) { parser.getPages(parserChapter) }
+            Log.i(TAG, "getPages RESOLVED parserUrl='${parserChapter.url}' id=${parserChapter.id}")
 
-            // Get the proper referer from the parser's headers
+            val parseStart = System.currentTimeMillis()
+            val pages = try {
+                MirrorSwitcher.withMirrors(parser) { parser.getPages(parserChapter) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                Log.w(TAG, "getPages CANCELLED after ${System.currentTimeMillis() - parseStart}ms")
+                throw e
+            } catch (e: Exception) {
+                Log.e(
+                    TAG,
+                    "getPages PARSER FAIL after ${System.currentTimeMillis() - parseStart}ms " +
+                        "domain='${parser.domain}' ${e.javaClass.simpleName}: ${e.message}"
+                )
+                throw e
+            }
+            Log.i(TAG, "getPages PARSER OK pages=${pages.size} parseMs=${System.currentTimeMillis() - parseStart}")
+
             val referer = try {
                 val headers = parser.getRequestHeaders()
                 headers["Referer"] ?: "https://${parser.domain}/"
@@ -344,23 +367,37 @@ class ParserMangaSource private constructor(
                 "https://${parser.domain}/"
             }
 
-            pages.mapIndexed { index, page ->
-                // FIX: Page URL resolution — getPageUrl returns the direct image URL (absolute).
-                // If getPageUrl fails, page.url is a relative URL that needs resolution.
-                // Old code fell back to page.url raw, which could be relative and break image loading.
-                val imageUrl = try {
-                    parser.getPageUrl(page)
-                } catch (e: kotlinx.coroutines.CancellationException) {
-                    // A cancelled reader job must stop the loop, not log a warning per
-                    // page (77 lines in one burst) while iterating a dead coroutine
-                    throw e
-                } catch (e: Exception) {
-                    Log.w(TAG, "getPageUrl failed for page $index, resolving page.url='${page.url}': ${e.message}")
-                    resolveUrl(page.url)
-                }
-                // Resolve the final URL in case getPageUrl returned something unexpected
-                Page(index = index, imageUrl = resolveUrl(imageUrl), referer = referer)
+            val mapStart = System.currentTimeMillis()
+            val urlFailures = java.util.concurrent.atomic.AtomicInteger(0)
+            val gate = kotlinx.coroutines.sync.Semaphore(PAGE_URL_CONCURRENCY)
+            val mapped = kotlinx.coroutines.coroutineScope {
+                pages.mapIndexed { index, page ->
+                    async {
+                        gate.withPermit {
+                            val imageUrl = try {
+                                parser.getPageUrl(page)
+                            } catch (e: kotlinx.coroutines.CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                urlFailures.incrementAndGet()
+                                Log.w(
+                                    TAG,
+                                    "getPageUrl failed for page $index, resolving page.url='${page.url}': ${e.message}"
+                                )
+                                resolveUrl(page.url)
+                            }
+                            Page(index = index, imageUrl = resolveUrl(imageUrl), referer = referer)
+                        }
+                    }
+                }.awaitAll()
             }
+            Log.i(
+                TAG,
+                "getPages DONE mapped=${mapped.size} urlFailures=${urlFailures.get()} " +
+                    "blank=${mapped.count { it.imageUrl.isNullOrBlank() }} " +
+                    "mapMs=${System.currentTimeMillis() - mapStart} totalMs=${System.currentTimeMillis() - callStart}"
+            )
+            mapped
         }
     }
 }

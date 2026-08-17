@@ -1,7 +1,7 @@
 {
   "pluginId": "megamanga",
   "name": "MegaManga",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "manga",
   "lang": "multi",
   "entryClass": "com.omnistream.megamanga.MegaMangaPlugin",
