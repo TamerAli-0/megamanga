@@ -4,14 +4,14 @@
     {
       "pluginId": "megamanga",
       "name": "MegaManga",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "type": "manga",
       "lang": "multi",
       "downloadUrl": "https://raw.githubusercontent.com/TamerAli-0/megamanga/builds/megamanga.omni",
       "entryClass": "com.omnistream.megamanga.MegaMangaPlugin",
       "description": "Manga, manhwa and manhua sources for OmniStream",
-      "fileSize": 2139658,
-      "fileHash": "sha256-83704e36a183cf79888775f7bfeb88f9f8c9aa387a708ba714c4171e82f974ce",
+      "fileSize": 2142946,
+      "fileHash": "sha256-825e4e77f148de77002e4344f95efc0e4b6e62700d29be43d9d4dfcb37686fd6",
       "authors": [
         "OmniStream"
       ],
